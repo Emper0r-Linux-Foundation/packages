@@ -1,0 +1,5 @@
+# Ordered patch series applied with -p1 against the pristine kernel tree.
+# One filename per line. Comments and blank lines are ignored.
+#
+# Keep this file empty until a patch has a documented reason, an upstream
+# reference, and an owner for rebasing it on each new kernel release.

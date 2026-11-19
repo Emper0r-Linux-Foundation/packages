@@ -1,0 +1,144 @@
+# Emperor Linux 7.4-rc3, x86_64 "balanced" profile.
+# Merge onto arch/x86/configs/x86_64_defconfig:
+#   make O=out x86_64_defconfig
+#   scripts/kconfig/merge_config.sh -m -O out out/.config config/emperor.fragment
+#   make O=out olddefconfig
+# Always run olddefconfig; it resolves dependencies and drops unavailable symbols.
+
+# --- Identity ---
+# Stable distro suffix; do not edit Makefile EXTRAVERSION.
+CONFIG_LOCALVERSION="-emperor"
+# Avoid -g<sha> suffixes that vary per build and break module paths/reproducibility.
+CONFIG_LOCALVERSION_AUTO=n
+# Pre-userspace hostname only; /etc/hostname still wins once userspace runs.
+CONFIG_DEFAULT_HOSTNAME="emperor"
+
+# --- Memory / structure hardening ---
+# Bounds checks in string/memory helpers; negligible runtime cost.
+CONFIG_FORTIFY_SOURCE=y
+# Validate copy_to/from_user() ranges; small cost, can expose buggy drivers.
+CONFIG_HARDENED_USERCOPY=y
+# Zero-init all stack locals; strong info-leak defense, modest measurable cost.
+CONFIG_INIT_STACK_ALL_ZERO=y
+# Zero heap on allocation; typically <1%, up to ~7% on synthetic workloads.
+CONFIG_INIT_ON_ALLOC_DEFAULT_ON=y
+# Zero caller-used registers on return; <1%, shrinks ROP gadget surface.
+CONFIG_ZERO_CALL_USED_REGS=y
+# Randomize syscall-entry kernel stack offset; negligible cost.
+CONFIG_RANDOMIZE_KSTACK_OFFSET_DEFAULT=y
+# Stack canaries on array-bearing functions; small cost.
+CONFIG_STACKPROTECTOR_STRONG=y
+# Guard pages and virtually mapped kernel stacks; tiny TLB cost.
+CONFIG_VMAP_STACK=y
+# W^X for kernel text/rodata; no meaningful runtime cost.
+CONFIG_STRICT_KERNEL_RWX=y
+# W^X for modules; requires loader cooperation, no runtime cost.
+CONFIG_STRICT_MODULE_RWX=y
+
+# --- Allocator hardening ---
+# Randomize slab freelist order; small allocation-time cost.
+CONFIG_SLAB_FREELIST_RANDOM=y
+# Harden slab freelist metadata; small cost.
+CONFIG_SLAB_FREELIST_HARDENED=y
+# Keep slab caches separate (slab_nomerge); more memory, harder heap exploits.
+CONFIG_SLAB_MERGE_DEFAULT=n
+# Partition normal kmalloc caches; some memory/CPU overhead, better isolation.
+CONFIG_KMALLOC_PARTITION_CACHES=y
+# Random per-boot partition choice; TYPED is better only with Clang 22+.
+CONFIG_KMALLOC_PARTITION_RANDOM=y
+# Shuffle page allocator freelists; reduces allocation predictability.
+CONFIG_SHUFFLE_PAGE_ALLOCATOR=y
+
+# --- CPU / kernel attack surface ---
+# KASLR; keep on for every profile.
+CONFIG_RANDOMIZE_BASE=y
+# Randomize direct-map/vmalloc base; minor boot cost.
+CONFIG_RANDOMIZE_MEMORY=y
+# Never compile out CPU mitigations; boot with mitigations=auto.
+CONFIG_CPU_MITIGATIONS=y
+# Page-table isolation (7.4 name); measurable context-switch cost, keep for security.
+CONFIG_MITIGATION_PAGE_TABLE_ISOLATION=y
+# Remove legacy vsyscall page; breaks only ancient binaries.
+CONFIG_LEGACY_VSYSCALL_NONE=y
+# User-mode instruction prevention; minimal cost.
+CONFIG_X86_UMIP=y
+# Drop x32 ABI; almost nothing uses it and it adds syscall surface.
+CONFIG_X86_X32_ABI=n
+# Keep 32-bit support for Steam/Wine; set n on a pure-64-bit server image.
+CONFIG_IA32_EMULATION=y
+# No implicit TTY line-discipline autoload; userspace must modprobe.
+CONFIG_LDISC_AUTOLOAD=n
+
+# --- Device access ---
+# Keep /dev/mem for dmidecode/flashrom; lockdown can block it later.
+CONFIG_DEVMEM=y
+# Restrict /dev/mem to device memory; default on x86.
+CONFIG_STRICT_DEVMEM=y
+# Block I/O-port access through /dev/mem; may break legacy tools.
+CONFIG_IO_STRICT_DEVMEM=y
+# Drop /proc/kcore; breaks crash/drgn live analysis, removes root-readable kernel memory.
+CONFIG_PROC_KCORE=n
+# Keep kexec/kdump; disable at runtime with kexec_load_disabled if unused.
+CONFIG_KEXEC=y
+# Keep suspend-to-disk; note that lockdown=integrity blocks it.
+CONFIG_HIBERNATION=y
+# Keep SysRq code but default it off; re-enable at runtime for recovery.
+CONFIG_MAGIC_SYSRQ=y
+CONFIG_MAGIC_SYSRQ_DEFAULT_ENABLE=0x0
+
+# --- Modules / BPF ---
+# Verify module signatures; needed for lockdown and Secure Boot.
+CONFIG_MODULE_SIG=y
+# Sign all in-tree modules with the distro key during build.
+CONFIG_MODULE_SIG_ALL=y
+# Allow DKMS/out-of-tree initially; enforce later with module.sig_enforce=1 or set y.
+CONFIG_MODULE_SIG_FORCE=n
+# bpf() is used by systemd, seccomp tooling, tracing, and cgroup helpers.
+CONFIG_BPF_SYSCALL=y
+# Enable the JIT; required for the harden/always-on options below.
+CONFIG_BPF_JIT=y
+# kernel.unprivileged_bpf_disabled=2 by default.
+CONFIG_BPF_UNPRIV_DEFAULT_OFF=y
+# Remove the BPF interpreter; JIT spraying is mitigated by bpf_jit_harden=2.
+CONFIG_BPF_JIT_ALWAYS_ON=y
+
+# --- Namespaces / sandboxing ---
+# Needed for Flatpak, containers, and bwrap; increases kernel attack surface.
+CONFIG_USER_NS=y
+
+# --- LSM / access control ---
+CONFIG_SECURITY=y
+CONFIG_SECURITY_NETWORK=y
+# Lockdown machinery; default mode is "none" below.
+CONFIG_SECURITY_LOCKDOWN_LSM=y
+CONFIG_SECURITY_LOCKDOWN_LSM_EARLY=y
+# Off by default because "integrity" blocks hibernation, kexec, debugfs, /dev/mem.
+CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y
+# ptrace_scope defaults to 1; can be raised to 2 at runtime.
+CONFIG_SECURITY_YAMA=y
+# Self-sandboxing for applications; no distro policy required.
+CONFIG_SECURITY_LANDLOCK=y
+# One major LSM only; AppArmor is the desktop-friendly choice.
+CONFIG_SECURITY_APPARMOR=y
+CONFIG_LSM="landlock,lockdown,yama,apparmor"
+
+# --- Responsiveness / build ---
+# One binary can boot as desktop or server; select with preempt=.
+CONFIG_PREEMPT_DYNAMIC=y
+# Default to scheduler-controlled preemption; override with preempt=full for low latency.
+CONFIG_PREEMPT_LAZY=y
+# 1000 Hz for desktop responsiveness; more idle wakeups/power than 250 Hz.
+CONFIG_HZ_1000=y
+# Optimize for speed instead of size.
+CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+
+# --- Optional profile switches (leave off unless justified) ---
+# CONFIG_CFI=y
+# CONFIG_KSTACK_ERASE=y
+# CONFIG_BUG_ON_DATA_CORRUPTION=y
+# CONFIG_MSEAL_SYSTEM_MAPPINGS=y
+# CONFIG_EFI_DISABLE_PCI_DMA=y
+# CONFIG_IOMMU_DEFAULT_DMA_STRICT=y
+# CONFIG_MODULE_COMPRESS=y
+# CONFIG_MODULE_COMPRESS_ZSTD=y
+# CONFIG_MODULE_COMPRESS_ALL=y
